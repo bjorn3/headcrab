@@ -1,3 +1,5 @@
+mod writemem;
+
 use nix::unistd::{getpid, Pid};
 use std::{
     fs::File,
@@ -7,6 +9,7 @@ use std::{
 };
 
 use crate::target::unix::{self, UnixTarget};
+pub use writemem::WriteMemory;
 
 /// This structure holds the state of a debuggee on Linux based systems
 /// You can use it to read & write debuggee's memory, pause it, set breakpoints, etc.
@@ -42,6 +45,11 @@ impl LinuxTarget {
     /// Reads memory from a debuggee process.
     pub fn read(&self) -> ReadMemory {
         ReadMemory::new(self.pid())
+    }
+
+    /// Writes memory to a debuggee process.
+    pub fn write(&self) -> WriteMemory {
+        WriteMemory::new(self.pid())
     }
 
     /// Reads the register values from the main thread of a debuggee process.
