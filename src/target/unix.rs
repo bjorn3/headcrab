@@ -4,6 +4,7 @@ use nix::{
     unistd::{execv, fork, ForkResult, Pid},
 };
 use std::ffi::CString;
+use std::process;
 
 /// This trait defines the common behavior for all *nix targets
 pub trait UnixTarget {
@@ -18,7 +19,7 @@ pub trait UnixTarget {
 }
 
 /// Launch a new debuggee process.
-pub(crate) fn launch(path: &str) -> Result<Pid, Box<dyn std::error::Error>> {
+pub(crate) fn launch(path: CString) -> Result<Pid, Box<dyn std::error::Error>> {
     // We start the debuggee by forking the parent process.
     // The child process invokes `ptrace(2)` with the `PTRACE_TRACEME` parameter to enable debugging features for the parent.
     // This requires a user to have a `SYS_CAP_PTRACE` permission. See `man capabilities(7)` for more information.
@@ -30,13 +31,19 @@ pub(crate) fn launch(path: &str) -> Result<Pid, Box<dyn std::error::Error>> {
             Ok(child)
         }
         ForkResult::Child => {
-            ptrace::traceme()?;
+            if let Err(err) = ptrace::traceme() {
+                println!("ptrace traceme failed: {:?}", err);
+                process::abort()
+            }
 
-            let path = CString::new(path)?;
-            execv(&path, &[])?;
+            if let Err(err) = execv(&path, &[]) {
+                println!("execv failed: {:?}", err);
+                process::abort();
+            }
 
             // execv replaces the process image, so this place in code will not be reached.
-            unreachable!();
+            println!("Unreachable code reached");
+            process::abort();
         }
     }
 }

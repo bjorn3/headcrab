@@ -1,5 +1,6 @@
 use nix::unistd::{getpid, Pid};
 use std::{
+    ffi::CString,
     fs::File,
     io::{BufRead, BufReader},
     marker::PhantomData,
@@ -24,7 +25,7 @@ impl UnixTarget for LinuxTarget {
 impl LinuxTarget {
     /// Launches a new debuggee process
     pub fn launch(path: &str) -> Result<LinuxTarget, Box<dyn std::error::Error>> {
-        let pid = unix::launch(path)?;
+        let pid = unix::launch(CString::new(path)?)?;
         Ok(LinuxTarget { pid })
     }
 
