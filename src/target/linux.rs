@@ -43,6 +43,13 @@ impl LinuxTarget {
     pub fn read_regs(&self) -> Result<libc::user_regs_struct, Box<dyn std::error::Error>> {
         nix::sys::ptrace::getregs(self.pid()).map_err(|err| err.into())
     }
+
+    /// Waits for the next debug event.
+    // FIXME return the actual event
+    pub fn next_event(&self) -> Result<(), Box<dyn std::error::Error>> {
+        nix::sys::wait::waitpid(self.pid(), None)?;
+        Ok(())
+    }
 }
 
 /// A single memory read operation.
