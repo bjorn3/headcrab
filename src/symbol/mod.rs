@@ -147,7 +147,6 @@ impl<'a> ParsedDwarf<'a> {
                 }
                 !symbol.is_undefined()
                     && symbol.section() != object::SymbolSection::Common
-                    && symbol.size() > 0
             })
             .collect();
         symbols.sort_by_key(|sym| sym.address());
