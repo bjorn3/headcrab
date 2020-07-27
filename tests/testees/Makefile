@@ -1,7 +1,7 @@
 CC       = rustc
 CC_FLAGS = -g -C relocation-model=dynamic-no-pic
 AS       = as
-AS_FLAGS = -fno-pic -fno-pie
+AS_FLAGS = -g -fno-pic -fno-pie
 LD       = gcc -fno-pic -fno-pie -static
 LD_FLAGS =
 SRCS = $(wildcard *.rs) $(wildcard *.S)

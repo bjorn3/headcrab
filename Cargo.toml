@@ -16,6 +16,7 @@ libproc = "0.7.2"
 libc = "0.2.72"
 object = "0.20"
 capstone = "0.7.0"
+addr2line = "0.13.0"
 
 # Dependencies specific to macOS & Linux
 [target.'cfg(unix)'.dependencies]
