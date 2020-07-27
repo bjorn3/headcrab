@@ -63,7 +63,7 @@ fn read_memory() -> Result<(), Box<dyn std::error::Error>> {
         .get_var_address("STATICVAR")
         .expect("Expected static var has not been found in the target binary");
 
-    let target = LinuxTarget::launch(BIN_PATH)?;
+    let mut target = LinuxTarget::launch(BIN_PATH)?;
 
     // Read pointer
     let mut ptr_addr: usize = 0;

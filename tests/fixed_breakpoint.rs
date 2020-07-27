@@ -25,7 +25,7 @@ fn fixed_breakpoint() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(not(target_os = "macos"))]
     let debuginfo = Dwarf::new(BIN_PATH)?;
 
-    let target = LinuxTarget::launch(BIN_PATH)?;
+    let mut target = LinuxTarget::launch(BIN_PATH)?;
 
     // First breakpoint
     target.unpause()?;

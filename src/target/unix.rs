@@ -11,11 +11,11 @@ pub trait UnixTarget {
     /// Provides the Pid of the debugee process
     fn pid(&self) -> Pid;
 
-    /// Continues execution of a debuggee.
+    /* /// Continues execution of a debuggee.
     fn unpause(&self) -> Result<(), Box<dyn std::error::Error>> {
         ptrace::cont(self.pid(), None)?;
         Ok(())
-    }
+    } */
 }
 
 /// Launch a new debuggee process.
@@ -26,6 +26,7 @@ pub(crate) fn launch(path: CString) -> Result<Pid, Box<dyn std::error::Error>> {
     match fork()? {
         ForkResult::Parent { child, .. } => {
             let _status = waitpid(child, None);
+            ptrace::setoptions(child, ptrace::Options::PTRACE_O_EXITKILL)?;
 
             // todo: handle this properly
             Ok(child)

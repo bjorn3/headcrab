@@ -12,7 +12,7 @@ static BIN_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/testees/hell
 fn read_regs() -> Result<(), Box<dyn std::error::Error>> {
     test_utils::ensure_testees();
 
-    let target = LinuxTarget::launch(BIN_PATH)?;
+    let mut target = LinuxTarget::launch(BIN_PATH)?;
 
     let regs = target.read_regs()?;
 

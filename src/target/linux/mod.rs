@@ -3,6 +3,7 @@ mod writemem;
 
 use nix::unistd::{getpid, Pid};
 use std::{
+    collections::HashMap,
     ffi::CString,
     fs::File,
     io::{BufRead, BufReader},
@@ -16,6 +17,7 @@ pub use writemem::WriteMemory;
 /// You can use it to read & write debuggee's memory, pause it, set breakpoints, etc.
 pub struct LinuxTarget {
     pid: Pid,
+    breakpoints: HashMap<usize, u8>,
 }
 
 impl UnixTarget for LinuxTarget {
@@ -29,18 +31,27 @@ impl LinuxTarget {
     /// Launches a new debuggee process
     pub fn launch(path: &str) -> Result<LinuxTarget, Box<dyn std::error::Error>> {
         let pid = unix::launch(CString::new(path)?)?;
-        Ok(LinuxTarget { pid })
+        Ok(LinuxTarget {
+            pid,
+            breakpoints: HashMap::new(),
+        })
     }
 
     /// Attaches process as a debugee.
     pub fn attach(pid: Pid) -> Result<LinuxTarget, Box<dyn std::error::Error>> {
         unix::attach(pid)?;
-        Ok(LinuxTarget { pid })
+        Ok(LinuxTarget {
+            pid,
+            breakpoints: HashMap::new(),
+        })
     }
 
     /// Uses this process as a debuggee.
     pub fn me() -> LinuxTarget {
-        LinuxTarget { pid: getpid() }
+        LinuxTarget {
+            pid: getpid(),
+            breakpoints: HashMap::new(),
+        }
     }
 
     /// Reads memory from a debuggee process.
@@ -56,6 +67,38 @@ impl LinuxTarget {
     /// Reads the register values from the main thread of a debuggee process.
     pub fn read_regs(&self) -> Result<libc::user_regs_struct, Box<dyn std::error::Error>> {
         nix::sys::ptrace::getregs(self.pid()).map_err(|err| err.into())
+    }
+
+    pub fn set_breakpoint(&mut self, addr: usize) -> Result<(), Box<dyn std::error::Error>> {
+        const INT3: libc::c_long = 0xcc;
+        let word = nix::sys::ptrace::read(self.pid(), addr as *mut _)?;
+        assert!(self.breakpoints.insert(addr, word as u8).is_none(), "Breakpoint already set");
+        let word = (word & !0xff) | INT3;
+        nix::sys::ptrace::write(self.pid(), addr as *mut _ , word as *mut _)?;
+        Ok(())
+    }
+
+    pub fn remove_breakpoint(&mut self, addr: usize) -> Result<(), Box<dyn std::error::Error>> {
+        let byte = self.breakpoints.remove(&addr).ok_or_else(|| "Breakpoint not found".to_string())?;
+        let word = nix::sys::ptrace::read(self.pid(), addr as *mut _)?;
+        let word = (word & !0xff) | byte as libc::c_long;
+        nix::sys::ptrace::write(self.pid(), addr as *mut _ , word as *mut _)?;
+        Ok(())
+    }
+
+    /// Continues execution of a debuggee.
+    pub fn unpause(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let mut regs = self.read_regs()?;
+        if self.breakpoints.get(&(regs.rip as usize - 1)).is_some() {
+            self.remove_breakpoint(regs.rip as usize - 1)?;
+            nix::sys::ptrace::step(self.pid(), None)?;
+            nix::sys::wait::waitpid(self.pid(), None)?;
+            self.set_breakpoint(regs.rip as usize - 1)?;
+            regs.rip -= 1;
+            nix::sys::ptrace::setregs(self.pid(), regs)?;
+        }
+        nix::sys::ptrace::cont(self.pid(), None)?;
+        Ok(())
     }
 
     /// Waits for the next debug event.
