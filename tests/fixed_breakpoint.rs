@@ -31,13 +31,19 @@ fn fixed_breakpoint() -> Result<(), Box<dyn std::error::Error>> {
     target.unpause()?;
     target.next_event()?;
     let ip = target.read_regs()?.rip;
-    assert_eq!(debuginfo.get_address_symbol(ip as usize).as_deref(), Some("main"));
+    assert_eq!(
+        debuginfo.get_address_symbol(ip as usize).as_deref(),
+        Some("main")
+    );
 
     // Second breakpoint
     target.unpause()?;
     target.next_event()?;
     let ip = target.read_regs()?.rip;
-    assert_eq!(debuginfo.get_address_symbol(ip as usize).as_deref(), Some("main"));
+    assert_eq!(
+        debuginfo.get_address_symbol(ip as usize).as_deref(),
+        Some("main")
+    );
 
     // Continue to exit
     target.unpause()?;

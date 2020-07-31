@@ -32,18 +32,26 @@ fn disassemble() -> Result<(), Box<dyn std::error::Error>> {
     target.next_event()?;
     let ip = target.read_regs()?.rip;
     println!("{:08x}", ip);
-    assert_eq!(debuginfo.get_address_symbol(ip as usize).as_deref(), Some("main"));
+    assert_eq!(
+        debuginfo.get_address_symbol(ip as usize).as_deref(),
+        Some("main")
+    );
 
     dbg!();
     let mut code = [0; 15];
-    unsafe { target.read().read(&mut code, ip as usize).apply()?; }
+    unsafe {
+        target.read().read(&mut code, ip as usize).apply()?;
+    }
     dbg!();
 
     let disassembly = headcrab::symbol::DisassemblySource::new().source_snippet(&code, ip)?;
-    assert_eq!(disassembly, "nop \n\
+    assert_eq!(
+        disassembly,
+        "nop \n\
 int3 \n\
 movq $0, %rax\n\
-retq \n");
+retq \n"
+    );
 
     // Second breakpoint
     target.unpause()?;
