@@ -17,7 +17,17 @@ pub use writemem::WriteMemory;
 /// You can use it to read & write debuggee's memory, pause it, set breakpoints, etc.
 pub struct LinuxTarget {
     pid: Pid,
-    breakpoints: HashMap<usize, u8>,
+    breakpoints: HashMap<usize, BreakpointEntry>,
+}
+
+struct BreakpointEntry {
+    replaced_byte: u8,
+    on_trap: Box<dyn FnMut()>,
+}
+
+pub struct Breakpoint {
+    pub addr: usize,
+    pub on_trap: Box<dyn FnMut()>,
 }
 
 impl UnixTarget for LinuxTarget {
@@ -69,31 +79,60 @@ impl LinuxTarget {
         nix::sys::ptrace::getregs(self.pid()).map_err(|err| err.into())
     }
 
-    pub fn set_breakpoint(&mut self, addr: usize) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn set_breakpoint(
+        &mut self,
+        breakpoint: Breakpoint,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         const INT3: libc::c_long = 0xcc;
-        let word = nix::sys::ptrace::read(self.pid(), addr as *mut _)?;
-        assert!(self.breakpoints.insert(addr, word as u8).is_none(), "Breakpoint already set");
+        let word = nix::sys::ptrace::read(self.pid(), breakpoint.addr as *mut _)?;
+        assert!(
+            self.breakpoints
+                .insert(
+                    breakpoint.addr,
+                    BreakpointEntry {
+                        replaced_byte: word as u8,
+                        on_trap: breakpoint.on_trap
+                    }
+                )
+                .is_none(),
+            "Breakpoint already set"
+        );
         let word = (word & !0xff) | INT3;
-        nix::sys::ptrace::write(self.pid(), addr as *mut _ , word as *mut _)?;
+        nix::sys::ptrace::write(self.pid(), breakpoint.addr as *mut _, word as *mut _)?;
         Ok(())
     }
 
-    pub fn remove_breakpoint(&mut self, addr: usize) -> Result<(), Box<dyn std::error::Error>> {
-        let byte = self.breakpoints.remove(&addr).ok_or_else(|| "Breakpoint not found".to_string())?;
+    pub fn remove_breakpoint(
+        &mut self,
+        addr: usize,
+    ) -> Result<Breakpoint, Box<dyn std::error::Error>> {
+        let breakpoint_entry = self
+            .breakpoints
+            .remove(&addr)
+            .ok_or_else(|| "Breakpoint not found".to_string())?;
         let word = nix::sys::ptrace::read(self.pid(), addr as *mut _)?;
-        let word = (word & !0xff) | byte as libc::c_long;
-        nix::sys::ptrace::write(self.pid(), addr as *mut _ , word as *mut _)?;
-        Ok(())
+        let word = (word & !0xff) | breakpoint_entry.replaced_byte as libc::c_long;
+        nix::sys::ptrace::write(self.pid(), addr as *mut _, word as *mut _)?;
+        Ok(Breakpoint {
+            addr,
+            on_trap: breakpoint_entry.on_trap,
+        })
     }
 
     /// Continues execution of a debuggee.
     pub fn unpause(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let mut regs = self.read_regs()?;
+
         if self.breakpoints.get(&(regs.rip as usize - 1)).is_some() {
-            self.remove_breakpoint(regs.rip as usize - 1)?;
+            let breakpoint = self.remove_breakpoint(regs.rip as usize - 1)?;
             nix::sys::ptrace::step(self.pid(), None)?;
             nix::sys::wait::waitpid(self.pid(), None)?;
-            self.set_breakpoint(regs.rip as usize - 1)?;
+
+            // Set replaced byte back to the original instruction and move instruction pointer back.
+            self.set_breakpoint(Breakpoint {
+                addr: regs.rip as usize - 1,
+                on_trap: breakpoint.on_trap,
+            })?;
             regs.rip -= 1;
             nix::sys::ptrace::setregs(self.pid(), regs)?;
         }

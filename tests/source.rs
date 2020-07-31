@@ -32,7 +32,10 @@ fn disassemble() -> Result<(), Box<dyn std::error::Error>> {
     target.next_event()?;
     let ip = target.read_regs()?.rip;
     println!("{:08x}", ip);
-    assert_eq!(debuginfo.get_address_symbol(ip as usize).as_deref(), Some("main"));
+    assert_eq!(
+        debuginfo.get_address_symbol(ip as usize).as_deref(),
+        Some("main")
+    );
 
     assert_eq!(debuginfo.source_snippet(ip as usize)?, "    int $3");
 
