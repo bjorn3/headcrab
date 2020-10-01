@@ -12,9 +12,14 @@ fn main() {
 
 #[cfg(target_os = "linux")]
 mod example {
-    use std::{borrow::Cow, process::Command};
+    use std::{borrow::Cow, cell::RefCell, process::Command};
     use std::{os::unix::ffi::OsStrExt, path::PathBuf};
 
+    use cranelift_codegen::{
+        ir::{AbiParam, Signature},
+        isa::CallConv,
+    };
+    use cranelift_module::{Linkage, Module};
     use headcrab::{
         symbol::{DisassemblySource, RelocatedDwarf, Snippet},
         target::{AttachOptions, LinuxTarget, UnixTarget},
@@ -911,7 +916,9 @@ mod example {
         Ok(())
     }
 
+    extern crate rustc_data_structures;
     extern crate rustc_driver;
+    extern crate rustc_hir;
     extern crate rustc_interface;
     extern crate rustc_session;
     extern crate rustc_span;
@@ -919,6 +926,8 @@ mod example {
 
     use std::path::Path;
 
+    use rustc_data_structures::fx::FxHashMap;
+    use rustc_hir::def_id::LOCAL_CRATE;
     use rustc_interface::interface;
     use rustc_target::spec::PanicStrategy;
 
@@ -953,6 +962,8 @@ mod example {
     }
 
     fn run_rust(context: &mut Context, code: String) -> Result<(), Box<dyn std::error::Error>> {
+        let context = context as *mut Context as usize;
+
         rustc_driver::init_rustc_env_logger();
         let mut callbacks = Callbacks::default();
         rustc_driver::install_ice_hook();
@@ -968,13 +979,97 @@ mod example {
                 Some(Box::new(SingleFileLoader(code))),
                 None,
                 Some(Box::new(move |_| {
+                    let context = unsafe { &mut *(context as *mut Context) }; // Not everything is Send
                     Box::new(rustc_codegen_cranelift::CraneliftCodegenBackend {
-                        config: rustc_codegen_cranelift::BackendConfig {
+                        config: RefCell::new(Some(rustc_codegen_cranelift::BackendConfig {
                             use_jit: true,
-                        }
+                            custom_backend: Some(Box::new(move |tcx| -> ! {
+                                let lookup_symbol: &dyn for<'a> Fn(&'a str) -> u64 = &|name| {
+                                    context.debuginfo().get_symbol_address(name).unwrap() as u64
+                                };
+                                let mut jit_module = headcrab_inject::InjectionModule::new(
+                                    context.remote().unwrap(),
+                                    rustc_codegen_cranelift::build_isa(tcx.sess, false),
+                                    &lookup_symbol,
+                                )
+                                .unwrap();
+                                //assert_eq!(
+                                //    pointer_ty(tcx),
+                                //    jit_module.target_config().pointer_type()
+                                //);
+
+                                let sig = Signature {
+                                    params: vec![
+                                        AbiParam::new(jit_module.target_config().pointer_type()),
+                                        AbiParam::new(jit_module.target_config().pointer_type()),
+                                    ],
+                                    returns: vec![AbiParam::new(
+                                        jit_module.target_config().pointer_type(), /*isize*/
+                                    )],
+                                    call_conv: CallConv::triple_default(
+                                        &rustc_codegen_cranelift::target_triple(tcx.sess),
+                                    ),
+                                };
+                                let main_func_id = jit_module
+                                    .declare_function("main", Linkage::Import, &sig)
+                                    .unwrap();
+
+                                if !tcx.sess.opts.output_types.should_codegen() {
+                                    tcx.sess.fatal("JIT mode doesn't work with `cargo check`.");
+                                }
+
+                                let (_, cgus) = tcx.collect_and_partition_mono_items(LOCAL_CRATE);
+                                let mono_items = cgus
+                                    .iter()
+                                    .map(|cgu| cgu.items_in_deterministic_order(tcx).into_iter())
+                                    .flatten()
+                                    .collect::<FxHashMap<_, (_, _)>>()
+                                    .into_iter()
+                                    .collect::<Vec<(_, (_, _))>>();
+
+                                let mut cx =
+                                    rustc_codegen_cranelift::CodegenCx::new(tcx, jit_module, false);
+
+                                let (mut jit_module, global_asm, _debug, mut unwind_context) =
+                                    rustc_codegen_cranelift::driver::time(
+                                        tcx,
+                                        "codegen mono items",
+                                        || {
+                                            rustc_codegen_cranelift::driver::codegen_mono_items(
+                                                &mut cx, mono_items,
+                                            );
+                                            tcx.sess.time("finalize CodegenCx", || cx.finalize())
+                                        },
+                                    );
+                                if !global_asm.is_empty() {
+                                    tcx.sess.fatal("Global asm is not supported in JIT mode");
+                                }
+                                rustc_codegen_cranelift::main_shim::maybe_create_entry_wrapper(
+                                    tcx,
+                                    &mut jit_module,
+                                    &mut unwind_context,
+                                    true,
+                                );
+                                rustc_codegen_cranelift::allocator::codegen(
+                                    tcx,
+                                    &mut jit_module,
+                                    &mut unwind_context,
+                                );
+
+                                jit_module.finalize_all().unwrap();
+
+                                tcx.sess.abort_if_errors();
+
+                                let finalized_main: u64 = jit_module.lookup_function(main_func_id);
+
+                                //let ret = f(args.len() as c_int, argv.as_ptr());
+                                todo!();
+
+                                std::panic::resume_unwind(Box::new(()));
+                            })),
+                        })),
                     })
                 })),
-                None,
             )
         });
         Ok(())

@@ -13,9 +13,9 @@ readme = "../README.md"
 
 [dependencies]
 headcrab = { version = "0.2.0", path = "../" }
-cranelift-codegen = "0.67.0"
-cranelift-reader = "0.67.0"
-cranelift-module = "0.67.0"
+cranelift-codegen = { git = "https://github.com/bytecodealliance/wasmtime.git", branch = "main" }
+cranelift-reader = { git = "https://github.com/bytecodealliance/wasmtime.git", branch = "main" }
+cranelift-module = { git = "https://github.com/bytecodealliance/wasmtime.git", branch = "main" }
 libc = "0.2.76"
 target-lexicon = "0.11.0"
 
