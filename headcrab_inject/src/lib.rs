@@ -8,13 +8,13 @@ use cranelift_codegen::{
 use headcrab::CrabResult;
 
 mod memory;
-mod module;
+mod old_module;
 
 pub use cranelift_codegen::Context;
 pub use cranelift_module::{DataId, FuncId, FuncOrDataId};
 pub use cranelift_reader::parse_functions;
 pub use memory::Memory;
-pub use module::InjectionModule;
+pub use old_module::OldInjectionModule;
 
 pub fn target_isa() -> Box<dyn TargetIsa> {
     let mut flag_builder = settings::builder();
@@ -37,7 +37,7 @@ fn parse_func_or_data(s: &str) -> FuncOrDataId {
 }
 
 pub fn inject_clif_code(
-    inj_module: &mut InjectionModule,
+    inj_module: &mut OldInjectionModule,
     lookup_symbol: &dyn Fn(&str) -> u64,
     code: &str,
 ) -> CrabResult<u64> {

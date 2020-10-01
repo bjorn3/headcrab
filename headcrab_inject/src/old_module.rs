@@ -7,7 +7,7 @@ use headcrab::{target::LinuxTarget, CrabResult};
 use crate::Memory;
 
 // FIXME unmap memory when done
-pub struct InjectionModule<'a> {
+pub struct OldInjectionModule<'a> {
     pub(crate) target: &'a LinuxTarget,
     code: Memory,
     readonly: Memory,
@@ -17,7 +17,7 @@ pub struct InjectionModule<'a> {
     breakpoint_trap: u64,
 }
 
-impl<'a> InjectionModule<'a> {
+impl<'a> OldInjectionModule<'a> {
     pub fn new(target: &'a LinuxTarget) -> CrabResult<Self> {
         let mut inj_ctx = Self {
             target,

@@ -7,7 +7,7 @@ use cranelift_module::FuncId;
 #[cfg(target_os = "linux")]
 use headcrab::{symbol::RelocatedDwarf, target::UnixTarget};
 #[cfg(target_os = "linux")]
-use headcrab_inject::InjectionModule;
+use headcrab_inject::OldInjectionModule;
 #[cfg(target_os = "linux")]
 use nix::sys::{signal::Signal, wait::WaitStatus};
 
@@ -28,7 +28,7 @@ fn inject_abort() -> headcrab::CrabResult<()> {
     target.unpause()?;
 
     debuginfo = RelocatedDwarf::from_maps(&target.memory_maps()?)?;
-    let mut inj_module = InjectionModule::new(&target)?;
+    let mut inj_module = OldInjectionModule::new(&target)?;
     let abort_function = debuginfo.get_symbol_address("abort").unwrap() as u64;
     println!("exit fn ptr: {:016x}", abort_function);
     inj_module.define_function(FuncId::from_u32(0), abort_function);
