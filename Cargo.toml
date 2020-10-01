@@ -50,16 +50,14 @@ headcrab_inject = { path = "./headcrab_inject" }
 rustyline = "6.2.0"
 repl_tools = { path = "./repl_tools" }
 rustc_codegen_cranelift = { path = "../cg_clif3" }
+cranelift-codegen = { git = "https://github.com/bytecodealliance/wasmtime.git", branch = "main" }
+cranelift-reader = { git = "https://github.com/bytecodealliance/wasmtime.git", branch = "main" }
+cranelift-module = { git = "https://github.com/bytecodealliance/wasmtime.git", branch = "main" }
 
 [features]
 syntax-highlighting = ["syntect"]
 
 [workspace]
-
-[patch.crates-io]
-"cranelift-codegen" = { git = 'https://github.com/bytecodealliance/wasmtime/', branch = "main" }
-"cranelift-reader" = { git = 'https://github.com/bytecodealliance/wasmtime/', branch = "main" }
-"cranelift-module" = { git = 'https://github.com/bytecodealliance/wasmtime/', branch = "main" }
 
 [patch."https://github.com/bytecodealliance/wasmtime/"]
 cranelift-codegen = { path = "../wasmtime/cranelift/codegen" }
