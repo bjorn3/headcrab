@@ -10,13 +10,13 @@ use headcrab::CrabResult;
 use headcrab::target::LinuxTarget;
 
 mod memory;
-mod module;
+mod old_module;
 
 pub use cranelift_codegen::Context;
 pub use cranelift_module::{DataId, FuncId, FuncOrDataId};
 pub use cranelift_reader::parse_functions;
 pub use memory::Memory;
-pub use module::InjectionModule;
+pub use old_module::OldInjectionModule;
 
 const EXECUTABLE_DATA_ALIGNMENT: u64 = 0x10;
 const WRITABLE_DATA_ALIGNMENT: u64 = 0x8;
@@ -43,7 +43,7 @@ fn parse_func_or_data(s: &str) -> FuncOrDataId {
 }
 
 pub fn inject_clif_code(
-    inj_module: &mut InjectionModule,
+    inj_module: &mut OldInjectionModule,
     lookup_symbol: &dyn Fn(&str) -> u64,
     code: &str,
 ) -> CrabResult<u64> {

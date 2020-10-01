@@ -20,7 +20,7 @@ mod example {
     };
 
     #[cfg(target_os = "linux")]
-    use headcrab_inject::{inject_clif_code, DataId, FuncId, InjectionModule};
+    use headcrab_inject::{inject_clif_code, DataId, FuncId, OldInjectionModule};
 
     use repl_tools::HighlightAndComplete;
     use rustyline::{completion::Pair, CompletionType};
@@ -808,7 +808,7 @@ mod example {
     fn inject_clif(context: &mut Context, file: PathBuf) -> CrabResult<()> {
         context.load_debuginfo_if_necessary()?;
 
-        let mut inj_ctx = InjectionModule::new(context.remote()?)?;
+        let mut inj_ctx = OldInjectionModule::new(context.remote()?)?;
         let run_function = inject_clif_code(
             &mut inj_ctx,
             &|sym| context.debuginfo().get_symbol_address(sym).unwrap() as u64,
@@ -851,7 +851,7 @@ mod example {
     fn inject_lib(context: &mut Context, file: PathBuf) -> CrabResult<()> {
         context.load_debuginfo_if_necessary()?;
 
-        let mut inj_ctx = InjectionModule::new(context.remote()?)?;
+        let mut inj_ctx = OldInjectionModule::new(context.remote()?)?;
         inj_ctx.define_function(
             FuncId::from_u32(0),
             context.debuginfo().get_symbol_address("dlopen").unwrap() as u64,

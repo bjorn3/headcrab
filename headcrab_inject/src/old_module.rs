@@ -7,14 +7,14 @@ use headcrab::{target::LinuxTarget, CrabResult};
 use crate::InjectionContext;
 
 // FIXME unmap memory when done
-pub struct InjectionModule<'a> {
+pub struct OldInjectionModule<'a> {
     inj_ctx: InjectionContext<'a>,
     functions: HashMap<FuncId, u64>,
     data_objects: HashMap<DataId, u64>,
     breakpoint_trap: u64,
 }
 
-impl<'a> InjectionModule<'a> {
+impl<'a> OldInjectionModule<'a> {
     pub fn new(target: &'a LinuxTarget) -> CrabResult<Self> {
         let mut inj_module = Self {
             inj_ctx: InjectionContext::new(target),
