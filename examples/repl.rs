@@ -1,3 +1,5 @@
+#![feature(rustc_private)]
+
 #[cfg(target_os = "linux")]
 fn main() {
     example::main();
@@ -57,6 +59,8 @@ mod example {
         InjectClif: PathBuf,
         /// Inject a dynamic library and run it's `__headcrab_command` function
         InjectLib: PathBuf,
+        /// Inject and run rust code
+        Rust: String,
         /// Print the source code execution point.
         List|l: (),
         /// Exit
@@ -384,6 +388,9 @@ mod example {
             }
             ReplCommand::InjectLib(file) => {
                 return inject_lib(context, file);
+            }
+            ReplCommand::Rust(code) => {
+                return run_rust(context, code);
             }
             ReplCommand::Exit(()) => unreachable!("Should be handled earlier"),
         }
@@ -902,5 +909,90 @@ mod example {
         inj_ctx.target().write_regs(orig_regs)?;
 
         Ok(())
+    }
+
+    extern crate rustc_driver;
+    extern crate rustc_interface;
+    extern crate rustc_session;
+    extern crate rustc_span;
+    extern crate rustc_target;
+
+    use std::path::Path;
+
+    use rustc_interface::interface;
+    use rustc_target::spec::PanicStrategy;
+
+    #[derive(Default)]
+    pub struct Callbacks {}
+
+    impl rustc_driver::Callbacks for Callbacks {
+        fn config(&mut self, config: &mut interface::Config) {
+            // FIXME workaround for an ICE
+            config.opts.debugging_opts.trim_diagnostic_paths = false;
+
+            config.opts.cg.panic = Some(PanicStrategy::Abort);
+            config.opts.debugging_opts.panic_abort_tests = true;
+            config.opts.maybe_sysroot = Some(
+                std::env::current_exe()
+                    .unwrap()
+                    .parent()
+                    .unwrap()
+                    .parent()
+                    .unwrap()
+                    .parent()
+                    .unwrap()
+                    .parent()
+                    .unwrap()
+                    .parent()
+                    .unwrap()
+                    .join("cg_clif3")
+                    .join("build_sysroot")
+                    .join("sysroot"),
+            );
+        }
+    }
+
+    fn run_rust(context: &mut Context, code: String) -> Result<(), Box<dyn std::error::Error>> {
+        rustc_driver::init_rustc_env_logger();
+        let mut callbacks = Callbacks::default();
+        rustc_driver::install_ice_hook();
+        rustc_driver::catch_with_exit_code(|| {
+            let args = vec![
+                "rustc".to_string(),
+                "main.rs".to_string(),
+                "-Cprefer-dynamic".to_string(),
+            ];
+            rustc_driver::run_compiler(
+                &args,
+                &mut callbacks,
+                Some(Box::new(SingleFileLoader(code))),
+                None,
+                Some(Box::new(move |_| {
+                    Box::new(rustc_codegen_cranelift::CraneliftCodegenBackend {
+                        config: rustc_codegen_cranelift::BackendConfig {
+                            use_jit: true,
+                        }
+                    })
+                })),
+                None,
+            )
+        });
+        Ok(())
+    }
+
+    struct SingleFileLoader(String);
+
+    impl rustc_span::source_map::FileLoader for SingleFileLoader {
+        fn file_exists(&self, path: &Path) -> bool {
+            path.to_str().unwrap() == "main.rs"
+        }
+
+        fn read_file(&self, path: &Path) -> std::io::Result<String> {
+            if path.to_str().unwrap() == "main.rs" {
+                Ok(self.0.clone())
+            } else {
+                std::fs::read_to_string(path)
+            }
+        }
     }
 }
