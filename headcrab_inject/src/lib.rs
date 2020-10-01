@@ -10,12 +10,14 @@ use headcrab::CrabResult;
 use headcrab::target::LinuxTarget;
 
 mod memory;
+mod module;
 mod old_module;
 
 pub use cranelift_codegen::Context;
 pub use cranelift_module::{DataId, FuncId, FuncOrDataId};
 pub use cranelift_reader::parse_functions;
 pub use memory::Memory;
+pub use module::InjectionModule;
 pub use old_module::OldInjectionModule;
 
 const EXECUTABLE_DATA_ALIGNMENT: u64 = 0x10;
