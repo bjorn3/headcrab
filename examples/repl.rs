@@ -961,7 +961,7 @@ mod example {
         }
     }
 
-    fn run_rust(context: &mut Context, code: String) -> Result<(), Box<dyn std::error::Error>> {
+    fn run_rust(context: &mut Context, code: String) -> CrabResult<()> {
         let context = context as *mut Context as usize;
 
         rustc_driver::init_rustc_env_logger();

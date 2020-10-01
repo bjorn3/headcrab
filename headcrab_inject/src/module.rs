@@ -1,11 +1,11 @@
-use std::{convert::TryInto, error::Error, ptr};
+use std::{convert::TryInto, ptr};
 
 use cranelift_codegen::{binemit, entity::SecondaryMap, ir, isa::TargetIsa, Context};
 use cranelift_module::{
     DataDescription, DataId, FuncId, Init, Module, ModuleCompiledFunction, ModuleDeclarations,
     ModuleError,
 };
-use headcrab::target::LinuxTarget;
+use headcrab::{target::LinuxTarget, CrabResult};
 use target_lexicon::PointerWidth;
 
 use crate::InjectionContext;
@@ -20,7 +20,7 @@ struct CompiledBytes {
 
 // FIXME unmap memory when done
 pub struct InjectionModule<'a> {
-    pub(crate) inj_ctx: InjectionContext<'a>,
+    pub(crate) inj_ctx: InjectionContext,
 
     isa: Box<dyn TargetIsa>,
     libcall_names: Box<dyn Fn(ir::LibCall) -> String>,
@@ -36,10 +36,10 @@ pub struct InjectionModule<'a> {
 
 impl<'a> InjectionModule<'a> {
     pub fn new(
-        target: &'a LinuxTarget,
+        target: crate::WorkerThread<LinuxTarget>,
         isa: Box<dyn TargetIsa>,
         lookup_symbol: &'a dyn Fn(&str) -> u64,
-    ) -> Result<Self, Box<dyn Error>> {
+    ) -> CrabResult<Self> {
         let mut inj_module = Self {
             inj_ctx: InjectionContext::new(target),
 
@@ -55,21 +55,15 @@ impl<'a> InjectionModule<'a> {
             breakpoint_trap: 0,
         };
 
-        inj_module.breakpoint_trap = inj_module
-            .inj_ctx
-            .allocate_code(1, None)
-            .map_err(|err| err as Box<dyn Error>)?;
-        inj_module
-            .target()
-            .write()
-            .write(&0xcc, inj_module.breakpoint_trap as usize)
-            .apply()?;
+        inj_module.breakpoint_trap = inj_module.inj_ctx.allocate_code(1, None)?;
+        let breakpoint_trap = inj_module.breakpoint_trap() as usize;
+        inj_module.with_target(|target| target.write().write(&0xcc, breakpoint_trap).apply())?;
 
         Ok(inj_module)
     }
 
-    pub fn target(&self) -> &LinuxTarget {
-        self.inj_ctx.target()
+    pub fn with_target<R: Send + 'static>(&self, f: impl FnOnce(&LinuxTarget) -> R + Send) -> R {
+        self.inj_ctx.with_target(f)
     }
 
     pub fn breakpoint_trap(&self) -> u64 {
@@ -77,17 +71,20 @@ impl<'a> InjectionModule<'a> {
     }
 
     /// Allocate a new stack and return the bottom of the stack.
-    pub fn new_stack(&mut self, size: u64) -> Result<u64, Box<dyn Error>> {
+    pub fn new_stack(&mut self, size: u64) -> CrabResult<u64> {
         let stack = self.inj_ctx.allocate_readwrite(size, Some(16))?;
 
         // Ensure that we hit a breakpoint trap when returning from the injected function.
-        self.target()
-            .write()
-            .write(
-                &(self.breakpoint_trap() as usize),
-                stack as usize + size as usize - std::mem::size_of::<usize>(),
-            )
-            .apply()?;
+        let breakpoint_trap = self.breakpoint_trap() as usize;
+        self.with_target(|target| {
+            target
+                .write()
+                .write(
+                    &breakpoint_trap,
+                    stack as usize + size as usize - std::mem::size_of::<usize>(),
+                )
+                .apply()
+        })?;
 
         // Stack grows downwards on x86_64
         Ok(stack + size - std::mem::size_of::<usize>() as u64)
@@ -134,11 +131,7 @@ impl<'a> InjectionModule<'a> {
         }
     }
 
-    fn perform_relocations(
-        &self,
-        bytes: &mut Vec<u8>,
-        relocs: &[RelocEntry],
-    ) -> Result<(), Box<dyn Error>> {
+    fn perform_relocations(&self, bytes: &mut Vec<u8>, relocs: &[RelocEntry]) {
         use std::ptr::write_unaligned;
 
         for &RelocEntry {
@@ -182,11 +175,9 @@ impl<'a> InjectionModule<'a> {
                 _ => unimplemented!(),
             }
         }
-
-        Ok(())
     }
 
-    fn finalize_function(&mut self, func_id: FuncId) -> Result<(), Box<dyn Error>> {
+    fn finalize_function(&mut self, func_id: FuncId) -> CrabResult<()> {
         let func = self.functions[func_id]
             .as_mut()
             .expect("function must be compiled before it can be finalized");
@@ -196,17 +187,19 @@ impl<'a> InjectionModule<'a> {
 
         let func = self.functions[func_id].as_ref().unwrap();
 
-        self.perform_relocations(&mut code, &func.relocs)?;
+        self.perform_relocations(&mut code, &func.relocs);
 
-        self.target()
-            .write()
-            .write_slice(&code, func.region as usize)
-            .apply()?;
+        self.with_target(|target| {
+            target
+                .write()
+                .write_slice(&code, func.region as usize)
+                .apply()
+        })?;
 
         Ok(())
     }
 
-    fn finalize_data(&mut self, data_id: DataId) -> Result<(), Box<dyn Error>> {
+    fn finalize_data(&mut self, data_id: DataId) -> CrabResult<()> {
         let data = self.data_objects[data_id]
             .as_mut()
             .expect("data object must be compiled before it can be finalized");
@@ -216,17 +209,19 @@ impl<'a> InjectionModule<'a> {
 
         let data = self.data_objects[data_id].as_ref().unwrap();
 
-        self.perform_relocations(&mut bytes, &data.relocs)?;
+        self.perform_relocations(&mut bytes, &data.relocs);
 
-        self.target()
-            .write()
-            .write_slice(&bytes, data.region as usize)
-            .apply()?;
+        self.with_target(|target| {
+            target
+                .write()
+                .write_slice(&bytes, data.region as usize)
+                .apply()
+        })?;
 
         Ok(())
     }
 
-    pub fn finalize_all(&mut self) -> Result<(), Box<dyn Error>> {
+    pub fn finalize_all(&mut self) -> CrabResult<()> {
         for func_id in std::mem::take(&mut self.functions_to_finalize) {
             self.finalize_function(func_id)?;
         }
