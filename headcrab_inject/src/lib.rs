@@ -5,13 +5,13 @@ use cranelift_codegen::{
     isa::{self, TargetIsa},
     settings::{self, Configurable},
 };
-use headcrab::CrabResult;
 
-use headcrab::target::LinuxTarget;
+use headcrab::{target::LinuxTarget, CrabResult};
 
 mod memory;
 mod module;
 mod old_module;
+mod worker_thread;
 
 pub use cranelift_codegen::Context;
 pub use cranelift_module::{DataId, FuncId, FuncOrDataId};
@@ -19,6 +19,7 @@ pub use cranelift_reader::parse_functions;
 pub use memory::Memory;
 pub use module::InjectionModule;
 pub use old_module::OldInjectionModule;
+pub use worker_thread::WorkerThread;
 
 const EXECUTABLE_DATA_ALIGNMENT: u64 = 0x10;
 const WRITABLE_DATA_ALIGNMENT: u64 = 0x8;
@@ -125,15 +126,15 @@ pub fn inject_clif_code(
     Ok(run_function)
 }
 
-pub struct InjectionContext<'a> {
-    target: &'a LinuxTarget,
+pub struct InjectionContext {
+    target: WorkerThread<LinuxTarget>,
     code: Memory,
     readonly: Memory,
     readwrite: Memory,
 }
 
-impl<'a> InjectionContext<'a> {
-    pub fn new(target: &'a LinuxTarget) -> Self {
+impl InjectionContext {
+    pub fn new(target: WorkerThread<LinuxTarget>) -> Self {
         Self {
             target,
             code: Memory::new_executable(),
@@ -142,33 +143,28 @@ impl<'a> InjectionContext<'a> {
         }
     }
 
-    pub fn target(&self) -> &'a LinuxTarget {
-        self.target
+    pub fn with_target<R: Send + 'static>(&self, f: impl FnOnce(&LinuxTarget) -> R + Send) -> R {
+        self.target.spawn(move |d| f(d))
     }
 
     pub fn allocate_code(&mut self, size: u64, align: Option<u64>) -> CrabResult<u64> {
-        self.code.allocate(
-            self.target,
-            size,
-            align.unwrap_or(EXECUTABLE_DATA_ALIGNMENT),
-        )
+        let code = &mut self.code;
+        self.target.spawn(move |target| {
+            code.allocate(target, size, align.unwrap_or(EXECUTABLE_DATA_ALIGNMENT))
+        })
     }
 
-    pub fn allocate_readonly(
-        &mut self,
-        size: u64,
-        align: Option<u64>,
-    ) -> CrabResult<u64> {
-        self.readonly
-            .allocate(self.target, size, align.unwrap_or(READONLY_DATA_ALIGNMENT))
+    pub fn allocate_readonly(&mut self, size: u64, align: Option<u64>) -> CrabResult<u64> {
+        let readonly = &mut self.readonly;
+        self.target.spawn(move |target| {
+            readonly.allocate(target, size, align.unwrap_or(READONLY_DATA_ALIGNMENT))
+        })
     }
 
-    pub fn allocate_readwrite(
-        &mut self,
-        size: u64,
-        align: Option<u64>,
-    ) -> CrabResult<u64> {
-        self.readwrite
-            .allocate(self.target, size, align.unwrap_or(WRITABLE_DATA_ALIGNMENT))
+    pub fn allocate_readwrite(&mut self, size: u64, align: Option<u64>) -> CrabResult<u64> {
+        let readwrite = &mut self.readwrite;
+        self.target.spawn(move |target| {
+            readwrite.allocate(target, size, align.unwrap_or(WRITABLE_DATA_ALIGNMENT))
+        })
     }
 }

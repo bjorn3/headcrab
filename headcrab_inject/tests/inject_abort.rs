@@ -5,7 +5,7 @@ mod test_utils;
 #[cfg(target_os = "linux")]
 use cranelift_module::FuncId;
 #[cfg(target_os = "linux")]
-use headcrab::{symbol::RelocatedDwarf, target::UnixTarget};
+use headcrab::{symbol::RelocatedDwarf, target::UnixTarget, CrabResult};
 #[cfg(target_os = "linux")]
 use headcrab_inject::OldInjectionModule;
 #[cfg(target_os = "linux")]
@@ -16,7 +16,7 @@ static BIN_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/testees/hell
 // FIXME: Running this test just for linux because of privileges issue on macOS. Enable for everything after fixing.
 #[cfg(target_os = "linux")]
 #[test]
-fn inject_abort() -> headcrab::CrabResult<()> {
+fn inject_abort() -> CrabResult<()> {
     test_utils::ensure_testees();
 
     let target = test_utils::launch(BIN_PATH);
