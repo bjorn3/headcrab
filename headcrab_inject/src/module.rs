@@ -116,7 +116,7 @@ impl<'a> InjectionModule<'a> {
             &mut code_mem,
             &mut relocs,
             &mut binemit::NullTrapSink {},
-            &mut binemit::NullStackmapSink {},
+            &mut binemit::NullStackMapSink {},
         )
         .unwrap();
 
