@@ -12,7 +12,8 @@ fn main() {
 
 #[cfg(target_os = "linux")]
 mod example {
-    use std::{borrow::Cow, cell::RefCell, process::Command};
+    use std::sync::mpsc::{self, Receiver, SyncSender};
+    use std::{any::Any, borrow::Cow, cell::RefCell, process::Command};
     use std::{os::unix::ffi::OsStrExt, path::PathBuf};
 
     use cranelift_codegen::{
@@ -27,7 +28,9 @@ mod example {
     };
 
     #[cfg(target_os = "linux")]
-    use headcrab_inject::{inject_clif_code, DataId, FuncId, OldInjectionModule, WorkerThread};
+    use headcrab_inject::{
+        inject_clif_code, DataId, FuncId, OldInjectionModule, WithLinuxTarget, WorkerThread,
+    };
 
     use repl_tools::HighlightAndComplete;
     use rustyline::{completion::Pair, CompletionType};
@@ -962,6 +965,9 @@ mod example {
     }
 
     fn run_rust(context: &mut Context, code: String) -> CrabResult<()> {
+        context.load_debuginfo_if_necessary()?;
+
+        let target = context.remote()?;
         let debuginfo = context.debuginfo();
         let lookup_symbol: &dyn for<'a> Fn(&'a str) -> u64 =
             &|name| debuginfo.get_symbol_address(name).unwrap() as u64;
@@ -970,11 +976,48 @@ mod example {
         let lookup_symbol: &(dyn for<'a> Fn(&'a str) -> u64 + Send + Sync) =
             unsafe { std::mem::transmute(lookup_symbol) };
 
-        Ok(()) //run_compiler(target, lookup_symbol, code)
+        struct DispatchLinuxTarget {
+            rx: Receiver<Box<dyn Any + Send>>,
+            tx: SyncSender<Box<dyn FnOnce(&LinuxTarget) -> Box<dyn Any + Send> + Send>>,
+        };
+
+        impl WithLinuxTarget for DispatchLinuxTarget {
+            fn with_target<R: Send + 'static>(
+                &self,
+                f: impl FnOnce(&LinuxTarget) -> R + Send,
+            ) -> R {
+                self.tx
+                    .send(unsafe {
+                        std::mem::transmute(Box::new(move |data: &LinuxTarget| {
+                            Box::new(f(data)) as Box<dyn Any + Send>
+                        })
+                            as Box<dyn for<'a> FnOnce(&'a LinuxTarget) -> Box<dyn Any + Send> + Send>)
+                    })
+                    .unwrap();
+                *self.rx.recv().unwrap().downcast::<R>().unwrap()
+            }
+        }
+
+        let (tx_cmd, rx_cmd) =
+            mpsc::sync_channel::<Box<dyn FnOnce(&LinuxTarget) -> Box<dyn Any + Send> + Send>>(0);
+        let (tx_res, rx_res) = mpsc::sync_channel(0);
+
+        let dispatch_target = DispatchLinuxTarget {
+            rx: rx_res,
+            tx: tx_cmd,
+        };
+
+        let thread = std::thread::spawn(move || run_compiler(dispatch_target, lookup_symbol, code));
+
+        while let Ok(cmd) = rx_cmd.recv() {
+            tx_res.send(cmd(target)).unwrap();
+        }
+
+        thread.join().unwrap()
     }
 
     fn run_compiler(
-        target: WorkerThread<LinuxTarget>,
+        target: impl WithLinuxTarget + Send + 'static,
         lookup_symbol: &(dyn for<'a> Fn(&'a str) -> u64 + Send + Sync),
         code: String,
     ) -> CrabResult<()> {
