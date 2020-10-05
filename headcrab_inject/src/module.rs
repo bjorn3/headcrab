@@ -55,9 +55,9 @@ impl<'a, T: WithLinuxTarget> InjectionModule<'a, T> {
             breakpoint_trap: 0,
         };
 
-        inj_module.breakpoint_trap = inj_module.inj_ctx.allocate_code(1, None)?;
+        inj_module.breakpoint_trap = inj_module.inj_ctx.allocate_code(1, None).unwrap();
         let breakpoint_trap = inj_module.breakpoint_trap() as usize;
-        inj_module.with_target(|target| target.write().write(&0xcc, breakpoint_trap).apply())?;
+        inj_module.with_target(|target| target.write().write(&0xcc, breakpoint_trap).apply()).unwrap();
 
         Ok(inj_module)
     }
@@ -117,7 +117,7 @@ impl<'a, T: WithLinuxTarget> InjectionModule<'a, T> {
         }
     }
 
-    fn perform_relocations(&self, bytes: &mut Vec<u8>, relocs: &[RelocEntry]) {
+    fn perform_relocations(&self, bytes: &mut Vec<u8>, pos: u64, relocs: &[RelocEntry]) {
         use std::ptr::write_unaligned;
 
         for &RelocEntry {
@@ -131,6 +131,7 @@ impl<'a, T: WithLinuxTarget> InjectionModule<'a, T> {
             let ptr = bytes.as_mut_ptr();
             let at = unsafe { ptr.offset(offset as isize) };
             let base = self.get_definition(name);
+            println!("{:016x} = {}", base, name);
             // TODO: Handle overflow.
             let what = ((base as i64) + (addend as i64)) as u64;
             match reloc {
@@ -149,7 +150,7 @@ impl<'a, T: WithLinuxTarget> InjectionModule<'a, T> {
                 }
                 binemit::Reloc::X86PCRel4 | binemit::Reloc::X86CallPCRel4 => {
                     // TODO: Handle overflow.
-                    let pcrel = ((what as isize) - (at as isize)) as i32;
+                    let pcrel = ((what as isize) - ((pos as isize) + (offset as isize)) /* FIXME */) as i32;
                     #[cfg_attr(feature = "cargo-clippy", allow(clippy::cast_ptr_alignment))]
                     unsafe {
                         write_unaligned(at as *mut i32, pcrel)
@@ -173,7 +174,7 @@ impl<'a, T: WithLinuxTarget> InjectionModule<'a, T> {
 
         let func = self.functions[func_id].as_ref().unwrap();
 
-        self.perform_relocations(&mut code, &func.relocs);
+        self.perform_relocations(&mut code, func.region, &func.relocs);
 
         self.with_target(|target| {
             target
@@ -195,7 +196,7 @@ impl<'a, T: WithLinuxTarget> InjectionModule<'a, T> {
 
         let data = self.data_objects[data_id].as_ref().unwrap();
 
-        self.perform_relocations(&mut bytes, &data.relocs);
+        self.perform_relocations(&mut bytes, data.region, &data.relocs);
 
         self.with_target(|target| {
             target

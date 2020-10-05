@@ -38,6 +38,9 @@ impl DisassemblySource {
             if show_address {
                 write!(fmt, "0x{:016x}: ", insn.address()).unwrap();
             }
+            for byte in insn.bytes() {
+                write!(fmt, "{:02x} ", byte).unwrap();
+            }
             if let Some(mnemonic) = insn.mnemonic() {
                 write!(fmt, "{} ", mnemonic).unwrap();
                 if let Some(op_str) = insn.op_str() {

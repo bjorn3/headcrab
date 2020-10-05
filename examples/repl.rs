@@ -1034,13 +1034,14 @@ mod example {
             ..orig_regs
         };
         context.remote()?.write_regs(regs)?;
-        let status = context.remote()?.unpause()?;
-        println!(
-            "{:?} at 0x{:016x}",
-            status,
-            context.remote()?.read_regs()?.rip
-        );
-        context.remote()?.write_regs(orig_regs)?;
+        //let status = context.remote()?.unpause()?;
+        //println!(
+        //    "{:?} at 0x{:016x}",
+        //    status,
+        //    context.remote()?.read_regs()?.rip
+        //);
+        print_source_for_top_of_stack_symbol(context, 3)?;
+        //context.remote()?.write_regs(orig_regs)?;
 
         Ok(())
     }
@@ -1064,6 +1065,8 @@ mod example {
                 "rustc".to_string(),
                 "main.rs".to_string(),
                 "-Cprefer-dynamic".to_string(),
+                "--emit".to_string(),
+                "llvm-ir,link".to_string(),
             ];
             rustc_driver::run_compiler(
                 &args,
