@@ -962,10 +962,15 @@ mod example {
     }
 
     fn run_rust(context: &mut Context, code: String) -> CrabResult<()> {
+        let debuginfo = context.debuginfo();
+        let lookup_symbol: &dyn for<'a> Fn(&'a str) -> u64 =
+            &|name| debuginfo.get_symbol_address(name).unwrap() as u64;
+        // Safety: No references to debuginfo are held for the duration of this function and the
+        // closure is dropped before the end of this function
         let lookup_symbol: &(dyn for<'a> Fn(&'a str) -> u64 + Send + Sync) =
-            &|name| context.debuginfo().get_symbol_address(name).unwrap() as u64;
+            unsafe { std::mem::transmute(lookup_symbol) };
 
-        Ok(())//run_compiler(target, lookup_symbol, code)
+        Ok(()) //run_compiler(target, lookup_symbol, code)
     }
 
     fn run_compiler(
