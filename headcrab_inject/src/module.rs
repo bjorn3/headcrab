@@ -131,7 +131,6 @@ impl<'a, T: WithLinuxTarget> InjectionModule<'a, T> {
             let ptr = bytes.as_mut_ptr();
             let at = unsafe { ptr.offset(offset as isize) };
             let base = self.get_definition(name);
-            println!("{:016x} = {}", base, name);
             // TODO: Handle overflow.
             let what = ((base as i64) + (addend as i64)) as u64;
             match reloc {
