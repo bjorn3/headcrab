@@ -27,7 +27,7 @@ mod example {
     };
 
     #[cfg(target_os = "linux")]
-    use headcrab_inject::{inject_clif_code, DataId, FuncId, OldInjectionModule};
+    use headcrab_inject::{inject_clif_code, DataId, FuncId, OldInjectionModule, WorkerThread};
 
     use repl_tools::HighlightAndComplete;
     use rustyline::{completion::Pair, CompletionType};
@@ -962,9 +962,21 @@ mod example {
     }
 
     fn run_rust(context: &mut Context, code: String) -> CrabResult<()> {
-        let context = context as *mut Context as usize;
+        let lookup_symbol: &(dyn for<'a> Fn(&'a str) -> u64 + Send + Sync) =
+            &|name| context.debuginfo().get_symbol_address(name).unwrap() as u64;
 
-        rustc_driver::init_rustc_env_logger();
+        Ok(())//run_compiler(target, lookup_symbol, code)
+    }
+
+    fn run_compiler(
+        target: WorkerThread<LinuxTarget>,
+        lookup_symbol: &(dyn for<'a> Fn(&'a str) -> u64 + Send + Sync),
+        code: String,
+    ) -> CrabResult<()> {
+        // Safety: The thread using lookup_symbol will finish before this function returns.
+        let lookup_symbol: &'static (dyn for<'a> Fn(&'a str) -> u64 + Send + Sync) =
+            unsafe { std::mem::transmute(lookup_symbol) };
+
         let mut callbacks = Callbacks::default();
         rustc_driver::install_ice_hook();
         rustc_driver::catch_with_exit_code(|| {
@@ -979,16 +991,13 @@ mod example {
                 Some(Box::new(SingleFileLoader(code))),
                 None,
                 Some(Box::new(move |_| {
-                    let context = unsafe { &mut *(context as *mut Context) }; // Not everything is Send
+                    //let context = todo!();
                     Box::new(rustc_codegen_cranelift::CraneliftCodegenBackend {
                         config: RefCell::new(Some(rustc_codegen_cranelift::BackendConfig {
                             use_jit: true,
                             custom_backend: Some(Box::new(move |tcx| -> ! {
-                                let lookup_symbol: &dyn for<'a> Fn(&'a str) -> u64 = &|name| {
-                                    context.debuginfo().get_symbol_address(name).unwrap() as u64
-                                };
                                 let mut jit_module = headcrab_inject::InjectionModule::new(
-                                    context.remote().unwrap(),
+                                    target,
                                     rustc_codegen_cranelift::build_isa(tcx.sess, false),
                                     &lookup_symbol,
                                 )
