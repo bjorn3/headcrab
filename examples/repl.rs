@@ -29,7 +29,8 @@ mod example {
 
     #[cfg(target_os = "linux")]
     use headcrab_inject::{
-        inject_clif_code, DataId, FuncId, OldInjectionModule, WithLinuxTarget, WorkerThread,
+        inject_clif_code, DataId, FuncId, InjectionContext, OldInjectionModule, WithLinuxTarget,
+        WorkerThread,
     };
 
     use repl_tools::HighlightAndComplete;
@@ -1018,17 +1019,43 @@ mod example {
             tx_res.send(cmd(target)).unwrap();
         }
 
-        thread.join().unwrap()
+        let run_function = thread.join().unwrap()?;
+        let stack = InjectionContext::new(target).allocate_stack(0x1000, 0)?;
+        println!(
+            "run function: 0x{:016x} stack: 0x{:016x}",
+            run_function, stack
+        );
+
+        let orig_regs = context.remote()?.read_regs()?;
+        println!("orig rip: {:016x}", orig_regs.rip);
+        let regs = libc::user_regs_struct {
+            rip: run_function,
+            rsp: stack,
+            ..orig_regs
+        };
+        context.remote()?.write_regs(regs)?;
+        let status = context.remote()?.unpause()?;
+        println!(
+            "{:?} at 0x{:016x}",
+            status,
+            context.remote()?.read_regs()?.rip
+        );
+        context.remote()?.write_regs(orig_regs)?;
+
+        Ok(())
     }
 
     fn run_compiler(
         target: impl WithLinuxTarget + Send + 'static,
         lookup_symbol: &(dyn for<'a> Fn(&'a str) -> u64 + Send + Sync),
         code: String,
-    ) -> CrabResult<()> {
+    ) -> CrabResult<u64> {
         // Safety: The thread using lookup_symbol will finish before this function returns.
         let lookup_symbol: &'static (dyn for<'a> Fn(&'a str) -> u64 + Send + Sync) =
             unsafe { std::mem::transmute(lookup_symbol) };
+
+        let result = std::sync::Arc::new(std::sync::Mutex::new(0));
+        let result2 = result.clone();
 
         let mut callbacks = Callbacks::default();
         rustc_driver::install_ice_hook();
@@ -1124,17 +1151,17 @@ mod example {
 
                                 let finalized_main: u64 = jit_module.lookup_function(main_func_id);
 
-                                //let ret = f(args.len() as c_int, argv.as_ptr());
-                                todo!();
+                                *result2.lock().unwrap() = finalized_main;
 
-                                std::panic::resume_unwind(Box::new(()));
+                                tcx.sess.fatal("a");
                             })),
                         })),
                     })
                 })),
             )
         });
-        Ok(())
+        let result = *result.lock().unwrap();
+        Ok(result)
     }
 
     struct SingleFileLoader(String);

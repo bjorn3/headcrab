@@ -376,12 +376,8 @@ impl<'a, T: WithLinuxTarget> Module for InjectionModule<'a, T> {
             Init::Uninitialized => {
                 panic!("data is not initialized yet");
             }
-            Init::Zeros { .. } => {
-                std::iter::repeat(0).take(size).collect()
-            }
-            Init::Bytes { ref contents } => {
-                contents.clone().into_vec()
-            }
+            Init::Zeros { .. } => std::iter::repeat(0).take(size).collect(),
+            Init::Bytes { ref contents } => contents.clone().into_vec(),
         };
 
         let reloc = match self.isa.triple().pointer_width().unwrap() {
