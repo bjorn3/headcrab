@@ -20,7 +20,7 @@ struct CompiledBytes {
 
 // FIXME unmap memory when done
 pub struct InjectionModule<'a> {
-    pub(crate) inj_ctx: InjectionContext,
+    pub(crate) inj_ctx: InjectionContext<'a>,
 
     isa: Box<dyn TargetIsa>,
     libcall_names: Box<dyn Fn(ir::LibCall) -> String>,
@@ -72,22 +72,8 @@ impl<'a> InjectionModule<'a> {
 
     /// Allocate a new stack and return the bottom of the stack.
     pub fn new_stack(&mut self, size: u64) -> CrabResult<u64> {
-        let stack = self.inj_ctx.allocate_readwrite(size, Some(16))?;
-
-        // Ensure that we hit a breakpoint trap when returning from the injected function.
-        let breakpoint_trap = self.breakpoint_trap() as usize;
-        self.with_target(|target| {
-            target
-                .write()
-                .write(
-                    &breakpoint_trap,
-                    stack as usize + size as usize - std::mem::size_of::<usize>(),
-                )
-                .apply()
-        })?;
-
-        // Stack grows downwards on x86_64
-        Ok(stack + size - std::mem::size_of::<usize>() as u64)
+        self.inj_ctx
+            .allocate_stack(size, self.breakpoint_trap() as usize)
     }
 
     pub fn lookup_function(&self, func_id: FuncId) -> u64 {

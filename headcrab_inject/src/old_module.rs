@@ -4,18 +4,18 @@ use cranelift_codegen::{binemit, ir, isa::TargetIsa, Context};
 use cranelift_module::{DataId, FuncId};
 use headcrab::{target::LinuxTarget, CrabResult};
 
-use crate::InjectionContext;
+use crate::{InjectionContext, WorkerThread};
 
 // FIXME unmap memory when done
-pub struct OldInjectionModule {
-    inj_ctx: InjectionContext,
+pub struct OldInjectionModule<'a> {
+    inj_ctx: InjectionContext<'a>,
     functions: HashMap<FuncId, u64>,
     data_objects: HashMap<DataId, u64>,
     breakpoint_trap: u64,
 }
 
-impl OldInjectionModule {
-    pub fn new(target: crate::WorkerThread<LinuxTarget>) -> CrabResult<Self> {
+impl<'a> OldInjectionModule<'a> {
+    pub fn new(target: WorkerThread<LinuxTarget>) -> CrabResult<Self> {
         let mut inj_module = Self {
             inj_ctx: InjectionContext::new(target),
             functions: HashMap::new(),
@@ -24,22 +24,15 @@ impl OldInjectionModule {
         };
 
         inj_module.breakpoint_trap = inj_module.inj_ctx.allocate_code(1, None)?;
-        inj_module.with_target(|target| {
-            target
-                .write()
-                .write(&0xcc, inj_module.breakpoint_trap as usize)
-                .apply()
-        })?;
+        inj_module
+            .inj_ctx
+            .write(&[0xcc], inj_module.breakpoint_trap as usize)?;
 
         Ok(inj_module)
     }
 
-    pub fn inj_ctx(&mut self) -> &mut InjectionContext {
+    pub fn inj_ctx(&mut self) -> &mut InjectionContext<'a> {
         &mut self.inj_ctx
-    }
-
-    pub fn with_target<R: Send + 'static>(&self, f: impl FnOnce(&LinuxTarget) -> R + Send) -> R {
-        self.inj_ctx.with_target(f)
     }
 
     pub fn breakpoint_trap(&self) -> u64 {
@@ -48,21 +41,8 @@ impl OldInjectionModule {
 
     /// Allocate a new stack and return the bottom of the stack.
     pub fn new_stack(&mut self, size: u64) -> CrabResult<u64> {
-        let stack = self.inj_ctx.allocate_readwrite(size, Some(16))?;
-
-        // Ensure that we hit a breakpoint trap when returning from the injected function.
-        self.with_target(|target| {
-            target
-                .write()
-                .write(
-                    &(self.breakpoint_trap() as usize),
-                    stack as usize + size as usize - std::mem::size_of::<usize>(),
-                )
-                .apply()
-        })?;
-
-        // Stack grows downwards on x86_64
-        Ok(stack + size - std::mem::size_of::<usize>() as u64)
+        self.inj_ctx
+            .allocate_stack(size, self.breakpoint_trap() as usize)
     }
 
     pub fn define_function(&mut self, func_id: FuncId, addr: u64) {
@@ -87,7 +67,7 @@ impl OldInjectionModule {
         bytes: &[u8],
     ) -> CrabResult<()> {
         let alloc = self.inj_ctx.allocate_readonly(bytes.len() as u64, None)?;
-        self.with_target(|target| target.write().write_slice(bytes, alloc as usize).apply())?;
+        self.inj_ctx.write(bytes, alloc as usize)?;
         self.define_data_object(data_id, alloc);
 
         Ok(())
@@ -131,12 +111,7 @@ impl OldInjectionModule {
             }
         }
 
-        self.with_target(|target| {
-            target
-                .write()
-                .write_slice(&code_mem, code_region as usize)
-                .apply()
-        })?;
+        self.inj_ctx.write(&code_mem, code_region as usize)?;
 
         self.define_function(
             match ctx.func.name {

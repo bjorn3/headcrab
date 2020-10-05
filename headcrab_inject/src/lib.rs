@@ -126,20 +126,22 @@ pub fn inject_clif_code(
     Ok(run_function)
 }
 
-pub struct InjectionContext {
+pub struct InjectionContext<'a> {
     target: WorkerThread<LinuxTarget>,
     code: Memory,
     readonly: Memory,
     readwrite: Memory,
+    _marker: std::marker::PhantomData<&'a ()>,
 }
 
-impl InjectionContext {
+impl<'a> InjectionContext<'a> {
     pub fn new(target: WorkerThread<LinuxTarget>) -> Self {
         Self {
             target,
             code: Memory::new_executable(),
             readonly: Memory::new_readonly(),
             readwrite: Memory::new_writable(),
+            _marker: std::marker::PhantomData,
         }
     }
 
@@ -166,5 +168,30 @@ impl InjectionContext {
         self.target.spawn(move |target| {
             readwrite.allocate(target, size, align.unwrap_or(WRITABLE_DATA_ALIGNMENT))
         })
+    }
+
+    /// Allocate a new stack and return the bottom of the stack.
+    pub fn allocate_stack(&mut self, size: u64, return_addr: usize) -> CrabResult<u64> {
+        let readwrite = &mut self.readwrite;
+
+        self.target.spawn(|target| {
+            let stack = readwrite.allocate(target, size, 16)?;
+
+            target
+                .write()
+                .write(
+                    &return_addr,
+                    stack as usize + size as usize - std::mem::size_of::<usize>(),
+                )
+                .apply()?;
+
+            // Stack grows downwards on x86_64
+            Ok(stack + size - std::mem::size_of::<usize>() as u64)
+        })
+    }
+
+    pub fn write(&mut self, data: &[u8], ptr: usize) -> CrabResult<()> {
+        self.target
+            .spawn(move |target| target.write().write_slice(data, ptr).apply())
     }
 }
