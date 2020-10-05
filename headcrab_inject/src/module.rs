@@ -350,7 +350,6 @@ impl<'a, T: WithLinuxTarget> Module for InjectionModule<'a, T> {
         assert!(!decl.tls, "InjectionModule doesn't yet support TLS");
 
         self.data_objects_to_finalize.push(data_id);
-        let mut bytes = vec![];
 
         let &DataDescription {
             ref init,
@@ -373,19 +372,17 @@ impl<'a, T: WithLinuxTarget> Module for InjectionModule<'a, T> {
                 .expect("TODO: handle OOM etc.")
         };
 
-        let storage = bytes.as_mut_ptr();
-        match *init {
+        let bytes = match *init {
             Init::Uninitialized => {
                 panic!("data is not initialized yet");
             }
             Init::Zeros { .. } => {
-                unsafe { ptr::write_bytes(storage, 0, size) };
+                std::iter::repeat(0).take(size).collect()
             }
             Init::Bytes { ref contents } => {
-                let src = contents.as_ptr();
-                unsafe { ptr::copy_nonoverlapping(src, storage, size) };
+                contents.clone().into_vec()
             }
-        }
+        };
 
         let reloc = match self.isa.triple().pointer_width().unwrap() {
             PointerWidth::U16 => panic!(),

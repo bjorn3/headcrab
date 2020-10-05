@@ -969,8 +969,11 @@ mod example {
 
         let target = context.remote()?;
         let debuginfo = context.debuginfo();
-        let lookup_symbol: &dyn for<'a> Fn(&'a str) -> u64 =
-            &|name| debuginfo.get_symbol_address(name).unwrap() as u64;
+        let lookup_symbol: &dyn for<'a> Fn(&'a str) -> u64 = &|name| {
+            debuginfo
+                .get_symbol_address(name)
+                .unwrap_or_else(|| panic!("{}", name)) as u64
+        };
         // Safety: No references to debuginfo are held for the duration of this function and the
         // closure is dropped before the end of this function
         let lookup_symbol: &(dyn for<'a> Fn(&'a str) -> u64 + Send + Sync) =
@@ -991,7 +994,9 @@ mod example {
                         std::mem::transmute(Box::new(move |data: &LinuxTarget| {
                             Box::new(f(data)) as Box<dyn Any + Send>
                         })
-                            as Box<dyn for<'a> FnOnce(&'a LinuxTarget) -> Box<dyn Any + Send> + Send>)
+                            as Box<
+                                dyn for<'a> FnOnce(&'a LinuxTarget) -> Box<dyn Any + Send> + Send,
+                            >)
                     })
                     .unwrap();
                 *self.rx.recv().unwrap().downcast::<R>().unwrap()
