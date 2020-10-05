@@ -1156,7 +1156,7 @@ mod example {
 
                                 *result2.lock().unwrap() = finalized_main;
 
-                                tcx.sess.fatal("a");
+                                tcx.sess.fatal("dummy error to exit rustc");
                             })),
                         })),
                     })
