@@ -834,20 +834,20 @@ mod example {
             run_function, stack
         );
 
-        let orig_regs = inj_ctx.target().read_regs()?;
+        let orig_regs = context.remote()?.read_regs()?;
         let regs = libc::user_regs_struct {
             rip: run_function,
             rsp: stack,
             ..orig_regs
         };
-        inj_ctx.target().write_regs(regs)?;
-        let status = inj_ctx.target().unpause()?;
+        context.remote()?.write_regs(regs)?;
+        let status = context.remote()?.unpause()?;
         println!(
             "{:?} at 0x{:016x}",
             status,
-            inj_ctx.target().read_regs()?.rip
+            context.remote()?.read_regs()?.rip
         );
-        inj_ctx.target().write_regs(orig_regs)?;
+        context.remote()?.write_regs(orig_regs)?;
 
         Ok(())
     }
@@ -897,21 +897,21 @@ mod example {
             run_function, stack
         );
 
-        let orig_regs = inj_ctx.target().read_regs()?;
+        let orig_regs = context.remote()?.read_regs()?;
         println!("orig rip: {:016x}", orig_regs.rip);
         let regs = libc::user_regs_struct {
             rip: run_function,
             rsp: stack,
             ..orig_regs
         };
-        inj_ctx.target().write_regs(regs)?;
-        let status = inj_ctx.target().unpause()?;
+        context.remote()?.write_regs(regs)?;
+        let status = context.remote()?.unpause()?;
         println!(
             "{:?} at 0x{:016x}",
             status,
-            inj_ctx.target().read_regs()?.rip
+            context.remote()?.read_regs()?.rip
         );
-        inj_ctx.target().write_regs(orig_regs)?;
+        context.remote()?.write_regs(orig_regs)?;
 
         Ok(())
     }

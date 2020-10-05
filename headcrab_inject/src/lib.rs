@@ -46,7 +46,7 @@ fn parse_func_or_data(s: &str) -> FuncOrDataId {
 }
 
 pub fn inject_clif_code(
-    inj_module: &mut OldInjectionModule,
+    inj_module: &mut OldInjectionModule<&LinuxTarget>,
     lookup_symbol: &dyn Fn(&str) -> u64,
     code: &str,
 ) -> CrabResult<u64> {
@@ -126,46 +126,66 @@ pub fn inject_clif_code(
     Ok(run_function)
 }
 
-pub struct InjectionContext<'a> {
-    target: WorkerThread<LinuxTarget>,
+pub trait WithLinuxTarget {
+    fn with_target<R: Send + 'static>(&self, f: impl FnOnce(&LinuxTarget) -> R + Send) -> R;
+}
+
+impl WithLinuxTarget for WorkerThread<LinuxTarget> {
+    fn with_target<R: Send + 'static>(&self, f: impl FnOnce(&LinuxTarget) -> R + Send) -> R {
+        self.spawn(move |d| f(d))
+    }
+}
+
+impl WithLinuxTarget for LinuxTarget {
+    fn with_target<R: Send + 'static>(&self, f: impl FnOnce(&LinuxTarget) -> R + Send) -> R {
+        f(self)
+    }
+}
+
+impl<T: WithLinuxTarget> WithLinuxTarget for &'_ T {
+    fn with_target<R: Send + 'static>(&self, f: impl FnOnce(&LinuxTarget) -> R + Send) -> R {
+        (**self).with_target(f)
+    }
+}
+
+pub struct InjectionContext<T: WithLinuxTarget> {
+    target: T,
     code: Memory,
     readonly: Memory,
     readwrite: Memory,
-    _marker: std::marker::PhantomData<&'a ()>,
 }
 
-impl<'a> InjectionContext<'a> {
-    pub fn new(target: WorkerThread<LinuxTarget>) -> Self {
+impl<T: WithLinuxTarget> InjectionContext<T> {
+    pub fn new(target: T) -> Self {
         Self {
             target,
             code: Memory::new_executable(),
             readonly: Memory::new_readonly(),
             readwrite: Memory::new_writable(),
-            _marker: std::marker::PhantomData,
         }
     }
 
     pub fn with_target<R: Send + 'static>(&self, f: impl FnOnce(&LinuxTarget) -> R + Send) -> R {
-        self.target.spawn(move |d| f(d))
+        self.target.with_target(f)
     }
 
     pub fn allocate_code(&mut self, size: u64, align: Option<u64>) -> CrabResult<u64> {
         let code = &mut self.code;
-        self.target.spawn(move |target| {
+        self.target.with_target(move |target| {
             code.allocate(target, size, align.unwrap_or(EXECUTABLE_DATA_ALIGNMENT))
         })
     }
 
     pub fn allocate_readonly(&mut self, size: u64, align: Option<u64>) -> CrabResult<u64> {
         let readonly = &mut self.readonly;
-        self.target.spawn(move |target| {
+        self.target.with_target(move |target| {
             readonly.allocate(target, size, align.unwrap_or(READONLY_DATA_ALIGNMENT))
         })
     }
 
     pub fn allocate_readwrite(&mut self, size: u64, align: Option<u64>) -> CrabResult<u64> {
         let readwrite = &mut self.readwrite;
-        self.target.spawn(move |target| {
+        self.target.with_target(move |target| {
             readwrite.allocate(target, size, align.unwrap_or(WRITABLE_DATA_ALIGNMENT))
         })
     }
@@ -174,7 +194,7 @@ impl<'a> InjectionContext<'a> {
     pub fn allocate_stack(&mut self, size: u64, return_addr: usize) -> CrabResult<u64> {
         let readwrite = &mut self.readwrite;
 
-        self.target.spawn(|target| {
+        self.target.with_target(|target| {
             let stack = readwrite.allocate(target, size, 16)?;
 
             target
@@ -192,6 +212,6 @@ impl<'a> InjectionContext<'a> {
 
     pub fn write(&mut self, data: &[u8], ptr: usize) -> CrabResult<()> {
         self.target
-            .spawn(move |target| target.write().write_slice(data, ptr).apply())
+            .with_target(move |target| target.write().write_slice(data, ptr).apply())
     }
 }

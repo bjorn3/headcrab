@@ -2,20 +2,20 @@ use std::collections::HashMap;
 
 use cranelift_codegen::{binemit, ir, isa::TargetIsa, Context};
 use cranelift_module::{DataId, FuncId};
-use headcrab::{target::LinuxTarget, CrabResult};
+use headcrab::CrabResult;
 
-use crate::{InjectionContext, WorkerThread};
+use crate::{InjectionContext, WithLinuxTarget};
 
 // FIXME unmap memory when done
-pub struct OldInjectionModule<'a> {
-    inj_ctx: InjectionContext<'a>,
+pub struct OldInjectionModule<T: WithLinuxTarget> {
+    inj_ctx: InjectionContext<T>,
     functions: HashMap<FuncId, u64>,
     data_objects: HashMap<DataId, u64>,
     breakpoint_trap: u64,
 }
 
-impl<'a> OldInjectionModule<'a> {
-    pub fn new(target: WorkerThread<LinuxTarget>) -> CrabResult<Self> {
+impl<T: WithLinuxTarget> OldInjectionModule<T> {
+    pub fn new(target: T) -> CrabResult<Self> {
         let mut inj_module = Self {
             inj_ctx: InjectionContext::new(target),
             functions: HashMap::new(),
@@ -31,7 +31,7 @@ impl<'a> OldInjectionModule<'a> {
         Ok(inj_module)
     }
 
-    pub fn inj_ctx(&mut self) -> &mut InjectionContext<'a> {
+    pub fn inj_ctx(&mut self) -> &mut InjectionContext<T> {
         &mut self.inj_ctx
     }
 

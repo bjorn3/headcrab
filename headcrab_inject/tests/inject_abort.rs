@@ -61,18 +61,18 @@ fn inject_abort() -> headcrab::CrabResult<()> {
         run_function, stack_region
     );
 
-    let orig_regs = inj_module.target().read_regs()?;
+    let orig_regs = target.read_regs()?;
     println!("orig rip: {:016x}", orig_regs.rip);
     let regs = libc::user_regs_struct {
         rip: run_function,
         rsp: stack_region + 0x1000,
         ..orig_regs
     };
-    inj_module.target().write_regs(regs)?;
-    let res = inj_module.target().unpause()?;
+    target.write_regs(regs)?;
+    let res = target.unpause()?;
     if let WaitStatus::Stopped(_, Signal::SIGABRT) = res {
     } else {
-        println!("rip: {:016x}", inj_module.target().read_regs()?.rip);
+        println!("rip: {:016x}", target.read_regs()?.rip);
         panic!("{:?}", res);
     }
 

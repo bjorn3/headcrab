@@ -8,7 +8,7 @@ use cranelift_module::{
 use headcrab::{target::LinuxTarget, CrabResult};
 use target_lexicon::PointerWidth;
 
-use crate::InjectionContext;
+use crate::{InjectionContext, WithLinuxTarget};
 
 #[derive(Clone)]
 struct CompiledBytes {
@@ -19,8 +19,8 @@ struct CompiledBytes {
 }
 
 // FIXME unmap memory when done
-pub struct InjectionModule<'a> {
-    pub(crate) inj_ctx: InjectionContext<'a>,
+pub struct InjectionModule<'a, T: WithLinuxTarget> {
+    pub(crate) inj_ctx: InjectionContext<T>,
 
     isa: Box<dyn TargetIsa>,
     libcall_names: Box<dyn Fn(ir::LibCall) -> String>,
@@ -34,9 +34,9 @@ pub struct InjectionModule<'a> {
     breakpoint_trap: u64,
 }
 
-impl<'a> InjectionModule<'a> {
+impl<'a, T: WithLinuxTarget> InjectionModule<'a, T> {
     pub fn new(
-        target: crate::WorkerThread<LinuxTarget>,
+        target: T,
         isa: Box<dyn TargetIsa>,
         lookup_symbol: &'a dyn Fn(&str) -> u64,
     ) -> CrabResult<Self> {
@@ -220,7 +220,7 @@ impl<'a> InjectionModule<'a> {
     }
 }
 
-impl<'a> Module for InjectionModule<'a> {
+impl<'a, T: WithLinuxTarget> Module for InjectionModule<'a, T> {
     fn isa(&self) -> &dyn TargetIsa {
         &*self.isa
     }
