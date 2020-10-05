@@ -163,6 +163,9 @@ impl<'a> ParsedDwarf<'a> {
 
         let mut symbol_names = HashMap::new();
         for sym in &symbols {
+            if let Some(name) = sym.name() {
+                symbol_names.insert(name.to_string(), sym.address() as usize);
+            }
             if let Some(name) = sym.demangled_name() {
                 symbol_names.insert(name.to_string(), sym.address() as usize);
             }
